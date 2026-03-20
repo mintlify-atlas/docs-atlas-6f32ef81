@@ -150,5 +150,5 @@ description: Get Lcurve running in MATLAB, evaluate the L-curve on the built-in 
 | `[x_best, K_knee] = Lcurve(A, b, L)` | Solution at the knee and its curvature |
 
 <Warning>
-  The `svd` method (default when `L = []`) requires a square or overdetermined system and assumes `L = I`. If you supply a non-identity `L`, the method automatically switches to `\` (backslash). You can override this with the `METHOD` argument.
+  The `svd` method (default when `L = []`) requires `L` to be the identity (`L = []`). If you supply a non-identity `L`, the method automatically switches to `\` (backslash). Passing `METHOD = 'svd'` with a non-identity `L` raises an error.
 </Warning>

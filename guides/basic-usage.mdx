@@ -120,7 +120,8 @@ XYKCs = Lcurve(A, b, L, LAMBDAs, '\', AA, LL, Ab);
 | `'inv'` | Explicit matrix inverse via `inv()`. Avoid unless necessary. |
 | `'\eye'` | Computes inverse column-wise: `D \ eye`. |
 | `'/\eye'` | Symmetrized version of `'\eye'`. |
-| `'decomposition'` | Uses MATLAB's `decomposition` object for warm-up across lambdas. |
+| `'decomposition'` | Uses MATLAB's `decomposition` object (Cholesky). |
+| `'decomposition_cod'` / `'cod'` | COD decomposition with symmetrized solve. For rank-deficient cases. |
 
 ## Quick example with the Shaw test problem
 

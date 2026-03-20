@@ -184,6 +184,24 @@ If the matrix is not positive definite and `decomposition` selects a factorizati
 
 ---
 
+### `'decomposition_cod'` or `'cod'`
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , 'cod' );
+```
+
+Uses MATLAB's `decomposition` object with a Complete Orthogonal Decomposition (COD) factorization and a symmetrized solve:
+
+```matlab
+D = AA + lambda * LL_;
+D = decomposition( D , 'cod' , 'CheckCondition', false );
+IAb = ( (D \ Ab) + (Ab.' / D.').' ) / 2;
+```
+
+**When to use:** When the normal equations matrix `AA + λ LL` may be rank-deficient or nearly so, and the COD factorization's robustness to rank deficiency is needed. Combines the COD factorization with the symmetrized-solve approach of `'\/'`.
+
+---
+
 ## Comparison summary
 
 | Method | L = Id? | Forms explicit inverse? | Relative cost | Notes |
@@ -193,7 +211,8 @@ If the matrix is not positive definite and `decomposition` selects a factorizati
 | `'\/'` | Any | No | Low + 1 solve | Symmetrized backslash |
 | `'\eye'` | Any | Yes | Medium | Column-wise via backslash |
 | `'/\eye'` | Any | Yes | Medium + 1 solve | Symmetrized eye variant |
-| `'decomposition'` | Any | No | Low | MATLAB decomposition object |
+| `'decomposition'` | Any | No | Low | MATLAB decomposition object (Cholesky) |
+| `'decomposition_cod'` / `'cod'` | Any | No | Low + 1 solve | COD decomposition, symmetrized |
 | `'inv'` | Any | Yes | Medium | **Not recommended** |
 
 <Note>

@@ -58,16 +58,18 @@ description: 'Input arguments to the Lcurve function: system matrix, right-hand 
   |---|---|
   | Numeric array | Evaluate L-curve at exactly these values |
   | `[]` or omitted | Automatic knee search with default range `10.^(-20:20)` |
-  | `{exponents}` | Knee search; cell content used as initial exploration exponents |
-  | `{values}` | Knee search; cell content used as raw lambda values (if any element ≥ `eps(1)`) |
+  | `{exponents}` | Knee search; cell content treated as base-10 exponents (all values < `eps(1)`) |
+  | `{values}` | Knee search; cell content treated as raw lambda values (any value ≥ `eps(1)`) |
+
+  **Cell input interpretation:** if **any** element of the cell content is ≥ `eps(1)`, the entire vector is interpreted as raw lambda values and `log10` is applied internally. If **all** elements are < `eps(1)`, they are already treated as exponents (i.e., the values themselves are used as log10 of lambda).
 
   **Cell input format for custom knee search range:**
 
   ```matlab
-  % Specify exponents (all values < eps(1) → treated as base-10 exponents):
+  % Integer exponents — all values < eps(1), so treated as base-10 exponents:
   [ X , K ] = Lcurve( A , b , L , {-20:20} );
 
-  % Specify raw lambda values:
+  % Actual lambda values — values ≥ eps(1), so log10 is applied internally:
   [ X , K ] = Lcurve( A , b , L , {10.^(-20:20)} );
 
   % Specify any custom initial exploration vector:
@@ -97,6 +99,7 @@ description: 'Input arguments to the Lcurve function: system matrix, right-hand 
   | `'\eye'` | Column-wise inverse: `D \ eye(n)` |
   | `'/\eye'` or `'\/eye'` | Symmetrized eye version |
   | `'decomposition'` | MATLAB `decomposition` object (Cholesky) |
+  | `'decomposition_cod'` or `'cod'` | COD decomposition, symmetrized solve |
 
   Pass `[]` or omit to use the default selection logic.
 
