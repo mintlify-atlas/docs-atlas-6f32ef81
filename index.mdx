@@ -1,97 +1,56 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Lcurve"
+description: "A MATLAB tool for the L-curve criterion in Tikhonov regularization — with analytic curvature computation and automatic optimal regularization parameter selection."
 ---
 
-## Setting up
+## What is Lcurve?
 
-Get your documentation site up and running in minutes.
+Lcurve is a general-purpose MATLAB function for evaluating and using the **L-curve criterion** in Tikhonov regularization problems. Given an ill-posed linear system `A*x ≈ b`, you need to choose a regularization parameter `λ` that balances data fidelity against solution smoothness. The L-curve criterion provides a principled, data-driven way to make that choice.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+Key capabilities:
 
-## Make it yours
+- **Analytic curvature**: curvature of the log-L-curve is computed in closed form — no finite differences, no approximation errors.
+- **Automatic knee detection**: finds the optimal `λ` automatically by locating the maximum-curvature point of the log-L-curve.
+- **Multiple solver backends**: SVD, backslash (`\`), symmetrized backslash, `inv`, `decomposition`, and more.
+- **Arbitrary regularization operators**: supports any matrix `L`, not just the identity.
+- **Warm-up mode**: pre-computes the SVD of `A` once and reuses it across many evaluations.
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running with a working example in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="L-curve criterion" icon="chart-line" href="/concepts/lcurve-criterion">
+    Understand the theory behind the L-curve and why it works.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API reference" icon="code" href="/api/lcurve-function">
+    Complete documentation of every calling convention and return value.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Guides" icon="book-open" href="/guides/basic-usage">
+    Step-by-step walkthroughs for common use cases.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Core workflow
 
-Everything you need to create world-class documentation.
+```matlab MATLAB
+% 1. Warm up A (pre-computes SVD once)
+A = Lcurve(A);
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+% 2. Evaluate the L-curve over a range of lambdas
+LAMBDAs = 10.^(-20:1:10);
+XYKCs = Lcurve(A, b, L, LAMBDAs);
 
-## Need inspiration?
+% 3. Find the optimal lambda automatically
+LAMBDA_knee = Lcurve(A, b, L);
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+% 4. Solve at the knee
+[x_best, K_knee] = Lcurve(A, b, L);
+```
+
+## Why analytic curvature?
+
+Most L-curve implementations estimate curvature using finite differences over a discrete set of `λ` values, which introduces numerical noise and requires a dense grid. Lcurve computes curvature **analytically** using matrix calculus — giving exact values at any single `λ` with no grid required.
+
+<Note>
+The analytic approach means you can accurately locate the knee even with a coarse initial `λ` grid, then zoom in automatically. See the [knee detection guide](/guides/knee-detection) for details.
+</Note>

@@ -1,0 +1,148 @@
+---
+title: 'Lcurve'
+description: 'Tikhonov regularization with automatic L-curve knee detection. Solves the regularized least-squares problem and analytically computes log-L-curve curvature.'
+---
+
+## Overview
+
+`Lcurve` solves the Tikhonov regularization problem
+
+```
+Xs(:,i) = argmin  | A * x - b |^2  +  LAMBDAs(i) * | L * x |^2
+```
+
+for one or more regularization parameters `LAMBDAs`. It returns the coordinates of the log-L-curve, the analytically computed curvature at each point, and the centers of the osculating circles. When no `LAMBDAs` are supplied it automatically locates the knee — the parameter corresponding to maximum curvature — via iterative refinement.
+
+## Function signature
+
+```matlab
+[ XYKCs , Ss ] = Lcurve( A , b , L , LAMBDAs , METHOD , AA , LL , Ab )
+```
+
+## Calling conventions
+
+### Warm-up
+
+Pre-factorize `A` via SVD so subsequent calls share the decomposition:
+
+```matlab
+A = Lcurve( A );          % returns warm-up cell {A, V, d2}
+```
+
+The returned cell can be passed directly as the first argument to any subsequent `Lcurve` call.
+
+### Evaluate L-curve at explicit lambdas
+
+```matlab
+XYKCs            = Lcurve( A , b , L , LAMBDAs );
+[ Xs , Ks ]      = Lcurve( A , b , L , LAMBDAs , METHOD );
+```
+
+Returns the log-L-curve coordinates, curvatures, and osculating-circle centers for each supplied `LAMBDA`.
+
+With two output arguments the function returns the solution matrix `Xs` (one column per `LAMBDA`) and the curvature vector `Ks` instead.
+
+### Automatic knee search — scalar lambda
+
+```matlab
+LAMBDA_knee = Lcurve( A , b , L );
+LAMBDA_knee = Lcurve( A , b , L , [] );
+```
+
+Returns the single scalar `LAMBDA_knee` that maximizes curvature of the log-L-curve.
+
+### Automatic knee search — solution at knee
+
+```matlab
+[ X_atKnee , K_atKnee ] = Lcurve( A , b , L );
+[ X_atKnee , K_atKnee ] = Lcurve( A , b , L , [] );
+[ X_atKnee , K_atKnee ] = Lcurve( A , b , L , [] , [] );
+```
+
+With two output arguments in knee mode, returns the solution vector `X_atKnee` and the curvature `K_atKnee` at the knee.
+
+### Knee search with custom initial range
+
+```matlab
+[ X_atKnee , K_atKnee ] = Lcurve( A , b , L , {-20:20} );
+[ X_atKnee , K_atKnee ] = Lcurve( A , b , L , {10.^(-20:20)} );
+[ X_atKnee , K_atKnee ] = Lcurve( A , b , L , {initial_exploration} );
+```
+
+Pass a cell array to specify the initial search range. Values smaller than `eps(1)` are treated as exponents (base 10); values larger are treated as raw lambda values.
+
+### Chain knee result into subsequent call
+
+```matlab
+XYKC_atKnee = Lcurve( A , b , L , Lcurve( A , b , L ) );
+```
+
+The scalar `LAMBDA_knee` returned by the inner call is passed as `LAMBDAs` to the outer call, which then returns the full 1×5 row for that point.
+
+## Quick reference
+
+<CardGroup cols={2}>
+  <Card title="Parameters" icon="sliders" href="/api/parameters">
+    All input arguments: A, b, L, LAMBDAs, METHOD, AA, LL, Ab
+  </Card>
+  <Card title="Outputs" icon="table" href="/api/outputs">
+    XYKCs matrix columns, solution matrix Ss, knee-mode returns
+  </Card>
+  <Card title="Methods" icon="wrench" href="/api/methods">
+    svd, \, \/, inv, \eye, /\eye, decomposition
+  </Card>
+  <Card title="Source" icon="code" href="https://github.com">
+    Lcurve.m — header comments lines 1–135
+  </Card>
+</CardGroup>
+
+## End-to-end example
+
+The following example reproduces the workflow from the source header (lines 60–134). It uses the `shaw` test problem from Hansen's Regularization Tools.
+
+```matlab
+% --- Setup -----------------------------------------------------------
+A = ...;   % 32×32 shaw system matrix (see source header for values)
+b = ...;   % 32×1 right-hand side
+L = [];    % [] means 0th-order regularization (L = identity)
+
+% --- Step 1: warm-up SVD factorization (reuse across many b vectors) --
+A = Lcurve( A );
+
+% --- Step 2: quick survey of the log-L-curve -------------------------
+LAMBDAs = 10.^( -20:1:10 );
+XYKCs   = Lcurve( A , b , L , LAMBDAs );
+
+figure;
+subplot(3,3,[1,4]);
+  plot( XYKCs(:,1) , XYKCs(:,2) ,'.:b' );
+  xlabel('log( |Ax - b|^2 )'); ylabel('log( |Lx|^2 )');
+
+subplot(3,3,7:9);
+  semilogx( LAMBDAs , XYKCs(:,3) ,'.:b' );
+  xlabel('\lambda'); ylabel('Curvature log-Lcurve');
+
+% --- Step 3: refined view near the knee ------------------------------
+LAMBDAs = 10.^( -8:0.005:-4 );   % denser grid
+XYKCs   = Lcurve( A , b , L , LAMBDAs );
+
+% plot osculating circles (columns 4:5 are the circle centers)
+C = reshape( permute( cat(3, XYKCs(:,1:2), XYKCs(:,4:5), NaN(size(XYKCs,1),2)), [3,1,2] ), [],2 );
+subplot(3,3,[2,3,5,6]); hold on;
+  plot( C(1:5:end,1), C(1:5:end,2), '-', 'Color', [0 0 0]+0.7 );
+  plot( XYKCs(:,1),   XYKCs(:,2),   'k-', 'LineWidth', 2 );
+hold off;
+
+% --- Step 4: automatic knee detection --------------------------------
+LAMBDA_knee = Lcurve( A , b , L );
+XYKCs_knee  = Lcurve( A , b , L , LAMBDA_knee );
+
+% --- Step 5: retrieve the regularized solution -----------------------
+[ x_best , K_knee ] = Lcurve( A , b , L );
+% x_best  — regularized solution at the knee lambda
+% K_knee  — curvature of the log-L-curve at the knee
+```
+
+<Note>
+Passing the warm-up cell (returned by `Lcurve(A)`) as the first argument avoids recomputing the SVD on every call, which is significant for large matrices or many right-hand sides.
+</Note>

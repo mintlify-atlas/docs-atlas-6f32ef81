@@ -1,0 +1,148 @@
+---
+title: L-curve Criterion
+description: How the L-curve identifies the optimal regularization parameter by finding the knee of the trade-off curve between residual and solution norms.
+---
+
+Once you have chosen a regularization operator `L` for your Tikhonov problem, you still need to pick the regularization parameter `λ`. The **L-curve criterion** is a graphical and analytical method for making this choice without requiring knowledge of the noise level.
+
+## What is the L-curve?
+
+The L-curve is a parametric plot with one point per value of `λ`:
+
+- **Horizontal axis:** `log( ||A·x(λ) - b||² )` — the log of the squared residual norm
+- **Vertical axis:** `log( ||L·x(λ)||² )` — the log of the squared regularization norm
+
+As `λ` varies from very small to very large, this trace sweeps out a curve in the log-log plane that characteristically resembles the letter **L**.
+
+```matlab
+% Compute the L-curve over a range of λ values
+LAMBDAs = 10.^(-10:0.1:2);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+% XYKCs(:,1) = log( ||Ax - b||^2 )  — horizontal axis
+% XYKCs(:,2) = log( ||Lx||^2 )      — vertical axis
+
+plot(XYKCs(:,1), XYKCs(:,2));
+xlabel('log( | Ax - b |^2 )');
+ylabel('log( | Lx |^2 )');
+```
+
+## Why it looks like an L
+
+The characteristic shape arises from the competing demands on `x(λ)`:
+
+<CardGroup cols={2}>
+  <Card title="Small λ (horizontal branch)" icon="arrow-right">
+    The regularization penalty is weak. The solution `x` fits the data closely, so the residual norm is small. But `x` also fits the noise, making `||Lx||` large. This traces the nearly horizontal top portion of the L.
+  </Card>
+  <Card title="Large λ (vertical branch)" icon="arrow-down">
+    The regularization penalty dominates. The solution is heavily smoothed, making `||Lx||` small. But the data fit deteriorates, pushing the residual norm upward. This traces the nearly vertical right portion of the L.
+  </Card>
+</CardGroup>
+
+Between these two regimes lies a sharp corner — the **knee** of the L-curve — where both norms are simultaneously as small as they can reasonably be.
+
+## Why the log scale is used
+
+Working with `log( ||r||² )` and `log( ||Lx||² )` rather than the raw norms offers several advantages:
+
+- **Numerical range compression:** the norms can span many orders of magnitude across the λ range; the log scale makes the full curve visible.
+- **Better-defined knee:** the corner is geometrically sharper on the log-log plot, making maximum curvature a more reliable criterion.
+- **Analytical tractability:** the derivatives needed for the curvature formula have clean closed-form expressions in terms of the log quantities.
+
+<Info>
+The `Lcurve` function stores coordinates in log scale directly: `XYKCs(i,1)` and `XYKCs(i,2)` are already `log(res²)` and `log(reg²)`. No additional transformation is needed for plotting.
+</Info>
+
+## The knee: maximum curvature
+
+The optimal `λ` is taken as the point of **maximum curvature** on the log-L-curve — geometrically, the sharpest corner of the L shape. This is stored in `XYKCs(:,3)`:
+
+```matlab
+LAMBDAs = 10.^(-10:0.1:2);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+% Find the λ corresponding to maximum curvature
+[~, idx]     = max(XYKCs(:,3));
+LAMBDA_knee  = LAMBDAs(idx);
+
+% Plot curvature vs λ
+semilogx(LAMBDAs, XYKCs(:,3));
+xlabel('\lambda');
+ylabel('Curvature of log-L-curve');
+```
+
+The `Lcurve` function can also find the knee automatically without you needing to specify `LAMBDAs`:
+
+```matlab
+% Automatic knee detection — searches 10^(-20:20) by default
+LAMBDA_knee = Lcurve(A, b, L);
+
+% Or retrieve both the optimal solution and the curvature at the knee
+[x_best, K_knee] = Lcurve(A, b, L);
+```
+
+When no `LAMBDAs` are provided (or an empty array is passed), the function performs an iterative search, progressively refining the λ range around the maximum-curvature point.
+
+## Interpreting the L-curve output
+
+The output matrix `XYKCs` has five columns:
+
+| Column | Content |
+|--------|---------|
+| `XYKCs(:,1)` | `log( \|\|Ax - b\|\|² )` — log residual norm squared |
+| `XYKCs(:,2)` | `log( \|\|Lx\|\|² )` — log regularization norm squared |
+| `XYKCs(:,3)` | Curvature of the log-L-curve at each λ |
+| `XYKCs(:,4:5)` | x, y coordinates of the osculating circle center |
+
+A complete analysis workflow:
+
+```matlab
+% Step 1: coarse sweep to locate the knee region
+LAMBDAs_coarse = 10.^(-20:1:10);
+XYKCs_coarse   = Lcurve(A, b, L, LAMBDAs_coarse);
+
+figure;
+subplot(1,2,1);
+  plot(XYKCs_coarse(:,1), XYKCs_coarse(:,2), '.:b');
+  xlabel('log( | Ax - b |^2 )');
+  ylabel('log( | Lx |^2 )');
+  title('L-curve (coarse)');
+
+subplot(1,2,2);
+  semilogx(LAMBDAs_coarse, XYKCs_coarse(:,3), '.:b');
+  xlabel('\lambda');
+  ylabel('Curvature');
+  title('Curvature vs \lambda');
+
+% Step 2: refine around the knee
+LAMBDAs_fine = 10.^(-8:0.01:-4);
+XYKCs_fine   = Lcurve(A, b, L, LAMBDAs_fine);
+
+% Step 3: extract the optimal solution
+[x_best, K_knee] = Lcurve(A, b, L);
+```
+
+## Negative curvatures
+
+Outside the knee region, the curvature can be negative — the curve bends away from the center of curvature. The `Lcurve` source code distinguishes these visually:
+
+```matlab
+% Negative curvatures are plotted in red; positive curvatures in black
+LSplot = @(x,y,varargin) builtin('plot', ...
+    x, (abs(y).*double(y<0)), 'r', ...
+    x, (abs(y).*double(y>0)), 'k', varargin{:});
+```
+
+<Note>
+Negative curvature values indicate regions far from the knee where the curve is concave in the opposite sense. For knee detection, only positive curvature values are meaningful. The `Lcurve` automatic search uses `max(XYKCs(:,3))` which naturally selects the largest positive curvature.
+</Note>
+
+## Reference
+
+The L-curve criterion is described in detail in Hansen's **Regularization Tools** manual:
+
+> P. C. Hansen, "Regularization Tools: A MATLAB package for analysis and solution of discrete ill-posed problems."
+> [RTv4 manual (PDF)](http://www2.compute.dtu.dk/~pcha/Regutools/RTv4manual.pdf)
+
+The `Lcurve` function was validated against the `shaw` test problem from Hansen's `regu.zip` package (Examples 3.1–3.3 of the manual).

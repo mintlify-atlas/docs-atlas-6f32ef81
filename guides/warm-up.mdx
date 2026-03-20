@@ -1,0 +1,149 @@
+---
+title: Warm-Up
+description: Pre-compute the SVD once and reuse it across many lambda evaluations for maximum speed.
+---
+
+When you need to evaluate the L-curve at many lambda values with the identity regularization operator (`L = []`), the SVD of `A` is the computational bottleneck. The warm-up call pre-computes the SVD once so all subsequent evaluations reuse it.
+
+## What warm-up does
+
+```matlab
+A = Lcurve(A);  % warm-up
+```
+
+With a single input argument `Lcurve` computes the thin SVD of `A` and returns a **cell array**:
+
+```matlab
+% Internally equivalent to:
+[~, d, V] = svd(A);
+d  = diag(d);
+d2 = d(:).^2;
+d2(end+1 : size(A,2), 1) = 0;  % pad to n×1
+A_warm = {A, V, d2};
+```
+
+The return value `{A, V, d2}` contains:
+
+| Field | Content |
+|-------|---------|
+| `A_warm{1}` | The original matrix `A` |
+| `A_warm{2}` | Right singular vectors `V` |
+| `A_warm{3}` | Squared singular values `d2` (padded to `n×1`) |
+
+<Note>
+  The variable name `A` is intentionally overwritten. Downstream calls accept the cell array wherever the original matrix was used, so no other changes are needed.
+</Note>
+
+## When to use warm-up
+
+<CardGroup cols={2}>
+  <Card title="Good fit for warm-up">
+    - Evaluating dozens or hundreds of lambda values
+    - Iterative knee search over a fine grid
+    - Interactive figures that call `Lcurve` on every mouse movement
+    - Repeated experiments with the same `A` but different `b`
+  </Card>
+  <Card title="Not needed">
+    - Single-lambda evaluations
+    - Non-identity `L` matrix (warm-up only supports the SVD path)
+    - Very small matrices where SVD cost is negligible
+  </Card>
+</CardGroup>
+
+## How to use the warm-up result
+
+After the warm-up, pass the cell array in place of the original matrix — the API is identical:
+
+```matlab
+% Warm up once
+A = Lcurve(A);
+
+% Evaluate at a coarse grid
+LAMBDAs_coarse = 10.^(-19:2:10);
+XYKCs_coarse   = Lcurve(A, b, L, LAMBDAs_coarse);
+
+% Evaluate at a fine grid near the knee (same warm-up, no extra SVD)
+LAMBDAs_fine = 10.^(-10:0.005:-2);
+XYKCs_fine   = Lcurve(A, b, L, LAMBDAs_fine);
+
+% Knee detection also benefits (SVD reused across all iterations)
+LAMBDA_knee = Lcurve(A, b, L);
+```
+
+## Why it speeds things up
+
+For the SVD method, each lambda evaluation reduces to:
+
+```
+IAb    = V * ((V' * Ab) ./ (d2 + t))
+LLIAb  = LL * IAb
+ILLIAb = V * ((V' * LLIAb) ./ (d2 + t))
+```
+
+This requires only matrix-vector multiplications with the already-factored `V` and elementwise divisions — no linear system is solved. Without warm-up the SVD is recomputed on the first lambda evaluation (unless one was passed in explicitly).
+
+The `'svd'` method is automatically selected when `L = []` (or `L = eye(n)`). If you omit warm-up, `Lcurve` calls itself internally to perform it the first time:
+
+```matlab
+% Inside Lcurve, if V or d2 are empty and METHOD=='svd':
+A  = Lcurve(A);   % automatic warm-up — but runs every top-level call
+d2 = A{3};
+V  = A{2};
+A  = A{1};
+```
+
+Calling `Lcurve(A)` yourself beforehand avoids this overhead.
+
+## Limitations
+
+<Warning>
+  Warm-up is only compatible with the `'svd'` method. The SVD method in turn requires `L = []` (identity regularization). If `L` is a non-trivial matrix, warm-up has no effect and the `'\'` (backslash) method is used instead.
+</Warning>
+
+- Passing a warm-up cell to a call with a non-identity `L` will cause `Lcurve` to unpack the cell, extract the original `A`, and proceed with the backslash method.
+- The warm-up cell is not serializable by default — if you save it to a `.mat` file you must include all three fields.
+
+## Full workflow example
+
+This mirrors the pattern used in `testing_Lcurve.m`:
+
+```matlab
+% --- Data (Shaw problem, 32×32) ---
+A = [1.3751010548893718e-9, ...];  % hard-coded in Lcurve.m
+b = [0.5050056251193388; ...];
+L = [];  % 0th-order regularization
+
+% --- Warm up (SVD computed once) ---
+A = Lcurve(A);
+
+% --- Coarse evaluation ---
+LAMBDAs = 10.^(-19:2:10);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+figure;
+subplot(3,3,[1,4]);
+  plot(XYKCs(:,1), XYKCs(:,2), '.:b');
+  xlabel('log( | A x - b |^2 )');
+  ylabel('log( | L x |^2 )');
+
+% --- Fine evaluation (reuses warm-up) ---
+LAMBDAs = 10.^(-10:0.005:-2);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+subplot(3,3,[2,3,5,6]);
+  plot(XYKCs(:,1), XYKCs(:,2), 'k-', 'LineWidth', 2);
+
+% --- Knee search (also reuses warm-up) ---
+LAMBDA_knee = Lcurve(A, b, L);
+fprintf('Optimal lambda: %.4e\n', LAMBDA_knee);
+```
+
+<Tip>
+  The warm-up cell can be passed to two-output mode just as easily:
+
+  ```matlab
+  A = Lcurve(A);  % warm up
+  [Ss, Ks] = Lcurve(A, b, L, LAMBDAs);  % retrieve solutions
+  x_best = Ss(:, Ks == max(Ks));         % solution at highest curvature
+  ```
+</Tip>

@@ -1,0 +1,149 @@
+---
+title: 'Parameters'
+description: 'Input arguments to the Lcurve function: system matrix, right-hand side, regularization operator, lambda values, solver method, and precomputed matrices.'
+---
+
+## Input parameters
+
+<ParamField path="body.A" type="matrix | cell">
+  System matrix of size **m × n**, or the warm-up cell `{A, V, d2}` returned by a prior warm-up call.
+
+  **Warm-up call** — pass `A` as the sole argument to pre-factorize via SVD and cache the result:
+
+  ```matlab
+  A = Lcurve( A );   % returns {A, V, d2}
+  ```
+
+  The returned cell can be passed as the first argument to any subsequent call. This avoids recomputing the SVD when `A` is fixed and `b` or `LAMBDAs` vary.
+
+  **Constraints:**
+  - Must be a 2-D matrix (`ismatrix(A)` must be true).
+  - `size(A, 1)` must equal `size(b, 1)`.
+
+  <Warning>
+  Passing a non-2-D array raises: `A must be a 2d matrix.`
+  </Warning>
+</ParamField>
+
+<ParamField path="body.b" type="vector | matrix" required>
+  Right-hand side of the linear system. Size **m × 1** for a single right-hand side, or **m × k** for `k` simultaneous right-hand sides.
+
+  **Constraint:** `size(b, 1)` must equal `size(A, 1)`. A mismatch raises:
+  `Dimensions of matrix A and vector b are not consistent.`
+</ParamField>
+
+<ParamField path="body.L" type="matrix | []" required>
+  Regularization operator of size **p × n**. Defines the semi-norm `| L * x |^2` that is minimized alongside the residual.
+
+  Pass `[]` to use the **0th-order regularization** (equivalent to `L = eye(n)`, penalizing solution energy directly):
+
+  ```matlab
+  L = [];   % identity regularization
+  ```
+
+  **Constraints (when non-empty):**
+  - Must be a 2-D matrix.
+  - `size(L, 2)` must equal `size(A, 2)`. A mismatch raises:
+    `Dimensions of matrices A and L are not consistent.`
+
+  <Note>
+  When `L = []` the `'svd'` method is selected by default. For any other `L`, the default method becomes `'\''`.
+  </Note>
+</ParamField>
+
+<ParamField path="body.LAMBDAs" type="number[] | cell | []" default="[]">
+  Regularization parameter values at which the L-curve is evaluated.
+
+  | Value | Behavior |
+  |---|---|
+  | Numeric array | Evaluate L-curve at exactly these values |
+  | `[]` or omitted | Automatic knee search with default range `10.^(-20:20)` |
+  | `{exponents}` | Knee search; cell content used as initial exploration exponents |
+  | `{values}` | Knee search; cell content used as raw lambda values (if any element ≥ `eps(1)`) |
+
+  **Cell input format for custom knee search range:**
+
+  ```matlab
+  % Specify exponents (all values < eps(1) → treated as base-10 exponents):
+  [ X , K ] = Lcurve( A , b , L , {-20:20} );
+
+  % Specify raw lambda values:
+  [ X , K ] = Lcurve( A , b , L , {10.^(-20:20)} );
+
+  % Specify any custom initial exploration vector:
+  [ X , K ] = Lcurve( A , b , L , {initial_exploration} );
+  ```
+
+  The knee search iteratively refines around the maximum-curvature region for up to 100 iterations, converging to a single `LAMBDA_knee` value.
+
+  <Tip>
+  Chain calls to evaluate the full L-curve row at the detected knee:
+
+  ```matlab
+  XYKC_atKnee = Lcurve( A , b , L , Lcurve( A , b , L ) );
+  ```
+  </Tip>
+</ParamField>
+
+<ParamField path="body.METHOD" type="string" default="'svd' when L=Id, '\\' otherwise">
+  Solver method string. Controls how the linear system `(A'A + λ L'L) \ (A'b)` is solved at each lambda. See the [Methods reference](/api/methods) for full details.
+
+  | String | Algorithm |
+  |---|---|
+  | `'svd'` | SVD decomposition (only valid when `L = []` / identity) |
+  | `'\'` | MATLAB backslash operator |
+  | `'\/'` or `'/\'` | Symmetrized backslash |
+  | `'inv'` | Explicit matrix inverse via `inv()` |
+  | `'\eye'` | Column-wise inverse: `D \ eye(n)` |
+  | `'/\eye'` or `'\/eye'` | Symmetrized eye version |
+  | `'decomposition'` | MATLAB `decomposition` object (Cholesky) |
+
+  Pass `[]` or omit to use the default selection logic.
+
+  <Warning>
+  Specifying `'svd'` when `L` is not the identity raises:
+  `SVD method only can be used for L = Id.`
+  </Warning>
+</ParamField>
+
+<ParamField path="body.AA" type="matrix" default="A.' * A (symmetrized)">
+  Precomputed `A'*A` matrix of size **n × n**. Providing this avoids recomputing the Gram matrix on every call when `A` is fixed.
+
+  ```matlab
+  AA = A.' * A;  AA = (AA + AA.') / 2;
+  Lcurve( A , b , L , LAMBDAs , METHOD , AA );
+  ```
+
+  Internally the function symmetrizes: `AA = (AA + AA.') / 2`.
+</ParamField>
+
+<ParamField path="body.LL" type="matrix" default="L.' * L (symmetrized)">
+  Precomputed `L'*L` matrix of size **n × n**. Providing this avoids recomputing it internally.
+
+  ```matlab
+  LL = L.' * L;  LL = (LL + LL.') / 2;
+  Lcurve( A , b , L , LAMBDAs , METHOD , AA , LL );
+  ```
+
+  Internally the function symmetrizes and, if the result equals `eye(n)`, collapses it to the scalar `1` for efficiency.
+</ParamField>
+
+<ParamField path="body.Ab" type="vector | matrix" default="A.' * b">
+  Precomputed `A'*b` vector (or matrix for multiple right-hand sides). Providing this avoids recomputing it internally when `A` and `b` are fixed across multiple calls with different `LAMBDAs`.
+
+  ```matlab
+  Ab = A.' * b;
+  Lcurve( A , b , L , LAMBDAs , METHOD , AA , LL , Ab );
+  ```
+</ParamField>
+
+## Error conditions
+
+| Condition | Error message |
+|---|---|
+| `A` is not a 2-D matrix | `A must be a 2d matrix.` |
+| `size(A,1) ~= size(b,1)` | `Dimensions of matrix A and vector b are not consistent.` |
+| `L` is non-empty and not 2-D | `L must be a 2d matrix.` |
+| `size(A,2) ~= size(L,2)` | `Dimensions of matrices A and L are not consistent.` |
+| `METHOD = 'svd'` and `L ~= Id` | `SVD method only can be used for L = Id.` |
+| Unrecognized `METHOD` string | `Unknown method.` |

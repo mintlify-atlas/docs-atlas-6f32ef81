@@ -1,0 +1,68 @@
+---
+title: Introduction
+description: Lcurve is a MATLAB function for solving ill-posed inverse problems using Tikhonov regularization with automatic optimal parameter selection via the L-curve criterion.
+---
+
+## What problem does Lcurve solve?
+
+Many problems in science and engineering require recovering an unknown quantity `x` from indirect, noisy measurements `b` through a forward model `A`. When `A` is ill-conditioned or singular — as it often is in image deblurring, geophysical inversion, medical imaging, and signal processing — naive least-squares solutions amplify measurement noise and produce useless results. These are called **ill-posed inverse problems**.
+
+The core challenge is not just solving `A*x ≈ b`, but choosing *how much* to regularize: too little and the solution is dominated by noise; too much and it is over-smoothed and biased. Lcurve automates this choice.
+
+## Tikhonov regularization
+
+Tikhonov regularization replaces the naive least-squares problem with a penalized one:
+
+```
+x(λ) = argmin  |A*x - b|² + λ * |L*x|²
+```
+
+The regularization matrix `L` encodes prior knowledge about the solution (e.g., `L = I` for 0th-order, or a difference matrix for smoothness), and `λ ≥ 0` controls the trade-off between data fidelity and regularization. Lcurve solves this family of problems for any set of `λ` values you supply, or finds the best `λ` automatically.
+
+## The L-curve criterion
+
+The **L-curve** is a log-log plot of the residual norm `log|A*x(λ) - b|²` versus the regularization norm `log|L*x(λ)|²`, traced over a range of `λ` values. It typically has a characteristic L-shape:
+
+- The **vertical part** (small `λ`): data is fit well but the solution is noisy.
+- The **horizontal part** (large `λ`): the solution is smooth but poorly fits the data.
+- The **corner** (the "knee"): the optimal balance point, corresponding to the `λ` of maximum curvature.
+
+The knee of the L-curve is a reliable, parameter-free heuristic for selecting `λ` without requiring knowledge of the noise level — unlike methods such as discrepancy principle or GCV.
+
+## Why Lcurve?
+
+Most L-curve implementations estimate curvature using finite differences over a discrete grid of `λ` values, which introduces numerical errors and requires a dense, carefully-chosen grid. Lcurve computes the curvature of the log-L-curve **analytically** — the exact derivative is derived symbolically and evaluated in closed form for each `λ`. This means:
+
+- Curvature is exact at any single `λ`, not an approximation.
+- The knee-finding algorithm does not depend on grid density.
+- Osculating circle centers are computed alongside curvature, enabling precise geometric visualization.
+
+The automatic knee-finding performs an iterative refinement search (starting from `λ ∈ 10^(−20:20)`) that zooms in on the maximum-curvature region, converging to a reliable optimal `λ` without manual tuning.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Analytic curvature" icon="function">
+    Curvature of the log-L-curve is computed in closed form — no finite differences, no grid-size dependency.
+  </Card>
+  <Card title="Automatic knee detection" icon="crosshairs">
+    Pass only `A`, `b`, and `L` to get the optimal `λ` and corresponding solution with no manual parameter search.
+  </Card>
+  <Card title="Multiple solvers" icon="sliders">
+    Choose from `svd`, `\`, `\/`, `inv`, `\eye`, `/\eye`, or `decomposition` backends to match your problem's structure and size.
+  </Card>
+  <Card title="SVD warm-up" icon="bolt">
+    Pre-factor `A` once with `A = Lcurve(A)` and reuse the decomposition across many calls — essential for repeated evaluations.
+  </Card>
+  <Card title="Osculating circles" icon="circle">
+    Returns the centers of the osculating circles at each evaluated point, making it straightforward to visualize curvature geometrically.
+  </Card>
+  <Card title="Built-in demo" icon="play">
+    Call `Lcurve()` with no arguments to run the full Shaw test problem demo, producing a 9-panel figure with L-curve, curvature plot, and interactive cursor.
+  </Card>
+</CardGroup>
+
+## Get started
+
+- Follow the [Quickstart](/quickstart) to run the built-in demo and evaluate your first L-curve in minutes.
+- See the Concepts pages for a deeper explanation of the output format, calling conventions, and available solvers.

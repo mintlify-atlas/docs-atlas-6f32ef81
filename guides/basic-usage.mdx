@@ -1,0 +1,159 @@
+---
+title: Basic Usage
+description: Evaluate the L-curve at a given set of regularization parameters and interpret the output.
+---
+
+The core workflow for `Lcurve` is: supply your system matrix `A`, right-hand side `b`, regularization operator `L`, and a vector of regularization parameters `LAMBDAs`. The function returns the L-curve coordinates, curvature, and osculating-circle centers for every lambda you provide.
+
+## Evaluating a set of lambdas
+
+The most direct call is:
+
+```matlab
+XYKCs = Lcurve(A, b, L, LAMBDAs);
+```
+
+`LAMBDAs` is a numeric row or column vector of positive regularization parameters. `XYKCs` is an `N×5` matrix where `N = numel(LAMBDAs)`.
+
+<Steps>
+  <Step title="Build your lambda grid">
+    Choose a range that brackets the expected knee. A logarithmically spaced grid is usually the right starting point:
+
+    ```matlab
+    LAMBDAs = 10.^(-20:1:10);  % 31 values from 1e-20 to 1e10
+    ```
+  </Step>
+  <Step title="Call Lcurve">
+    Pass the matrix, vector, regularization operator, and lambda grid:
+
+    ```matlab
+    XYKCs = Lcurve(A, b, L, LAMBDAs);
+    ```
+
+    For zero-th order (Tikhonov) regularization set `L = []`. The function treats an empty `L` as the identity matrix.
+  </Step>
+  <Step title="Inspect the output">
+    `XYKCs` has five columns:
+
+    | Column | Symbol | Meaning |
+    |--------|--------|---------|
+    | 1 | `log(‖Ax−b‖²)` | Log residual norm squared — the X-axis of the L-curve |
+    | 2 | `log(‖Lx‖²)` | Log regularization norm squared — the Y-axis |
+    | 3 | `κ` | Curvature of the log-L-curve at this lambda |
+    | 4 | `cx` | X-coordinate of the osculating circle center |
+    | 5 | `cy` | Y-coordinate of the osculating circle center |
+  </Step>
+</Steps>
+
+<Note>
+  Curvature in column 3 is computed analytically — no finite differences are used. Negative curvature values indicate concave sections of the L-curve.
+</Note>
+
+## Accessing individual quantities
+
+```matlab
+log_res2   = XYKCs(:, 1);  % log of squared residual norm
+log_reg2   = XYKCs(:, 2);  % log of squared regularization norm
+curvature  = XYKCs(:, 3);  % curvature at each lambda
+osc_center = XYKCs(:, 4:5); % osculating circle centers [cx, cy]
+```
+
+To recover the actual (non-log) norms:
+
+```matlab
+res_norm = sqrt(exp(XYKCs(:, 1)));  % ‖Ax - b‖
+reg_norm = sqrt(exp(XYKCs(:, 2)));  % ‖Lx‖
+```
+
+## Two-output mode: retrieving solutions
+
+When you request two outputs the function returns the regularized solutions for every lambda, plus a column vector of curvatures:
+
+```matlab
+[Ss, Ks] = Lcurve(A, b, L, LAMBDAs);
+```
+
+- `Ss` — matrix of size `n×N` where each column `Ss(:,i)` is the solution `x` for `LAMBDAs(i)`
+- `Ks` — `N×1` vector of curvatures, equivalent to `XYKCs(:,3)` from the single-output call
+
+Each solution column minimizes the Tikhonov functional:
+
+```
+Ss(:,i) = argmin  ‖A x - b‖² + LAMBDAs(i) · ‖L x‖²
+```
+
+<Tip>
+  Use two-output mode when you want to inspect or compare solutions across multiple lambdas without calling `Lcurve` again.
+</Tip>
+
+## Working with a non-identity L matrix
+
+When `L` is not the identity (e.g., a finite-difference operator for higher-order regularization), pass it directly:
+
+```matlab
+n  = size(A, 2);
+L1 = diff(eye(n));      % first-order difference operator
+XYKCs = Lcurve(A, b, L1, LAMBDAs);
+```
+
+Internally the function precomputes `AA = A'A` and `LL = L'L` on the first call. You can supply these yourself to avoid repeated computation across multiple calls:
+
+```matlab
+AA = A' * A;  AA = (AA + AA') / 2;
+LL = L' * L;  LL = (LL + LL') / 2;
+Ab = A' * b;
+
+XYKCs = Lcurve(A, b, L, LAMBDAs, '\', AA, LL, Ab);
+```
+
+<Warning>
+  The `'svd'` method is only valid when `L` is the identity. For arbitrary `L` matrices the default method `'\'` (backslash) is used automatically.
+</Warning>
+
+## Available solver methods
+
+| `METHOD` | Description |
+|----------|-------------|
+| `'svd'` | Default when `L = []` (identity). Uses precomputed SVD; fastest for repeated evaluations. |
+| `'\'` | Default when `L ≠ Id`. MATLAB backslash — numerically preferred. |
+| `'\/'` | Symmetrized backslash: averages `D\x` and `(x'/D')'`. |
+| `'inv'` | Explicit matrix inverse via `inv()`. Avoid unless necessary. |
+| `'\eye'` | Computes inverse column-wise: `D \ eye`. |
+| `'/\eye'` | Symmetrized version of `'\eye'`. |
+| `'decomposition'` | Uses MATLAB's `decomposition` object for warm-up across lambdas. |
+
+## Quick example with the Shaw test problem
+
+The Shaw problem (1-D image restoration) is embedded in `Lcurve` as a built-in demo. Here is how to run a basic evaluation:
+
+```matlab
+% Shaw problem — 32×32 system
+A = Lcurve();  % runs the built-in demo
+```
+
+Or, to work with the data directly:
+
+```matlab
+% Load the Shaw test data (values hard-coded in Lcurve.m)
+A = [1.3751010548893718e-9, ...];  % 32×32 matrix
+b = [0.5050056251193388; ...];      % 32-element vector
+L = [];  % 0th-order regularization (identity)
+
+% Quick sweep over a coarse lambda grid
+LAMBDAs = 10.^(-19:2:10);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+% Plot the L-curve
+figure;
+plot(XYKCs(:,1), XYKCs(:,2), '.:b');
+xlabel('log( | A x - b |^2 )');
+ylabel('log( | L x |^2 )');
+title('L-curve (Shaw problem)');
+```
+
+For a denser, more refined view around the knee:
+
+```matlab
+LAMBDAs = 10.^(-10:0.005:-2);  % fine grid
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+```

@@ -1,80 +1,154 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get Lcurve running in MATLAB, evaluate the L-curve on the built-in Shaw test problem, and find the optimal regularization parameter in minutes.
 ---
 
-## Get started in three steps
+<Steps>
+  <Step title="Add Lcurve.m to your MATLAB path">
+    Download or copy `Lcurve.m` to a folder that is on your MATLAB path, or simply place it in your current working directory.
 
-Get your documentation site running locally and make your first customization.
+    You can verify MATLAB can find it by running:
 
-### Step 1: Set up your local environment
+    ```matlab
+    which Lcurve
+    ```
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    You should see the full path to `Lcurve.m` printed in the Command Window.
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Run the built-in demo">
+    Call `Lcurve` with no arguments to run the complete self-contained demo. It loads the Shaw test problem (a 32×32 one-dimensional image restoration problem from Hansen's Regularization Tools), evaluates the L-curve over a wide range of `λ` values, finds the knee automatically, and opens an interactive 9-panel figure.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```matlab
+    Lcurve()
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    The figure shows:
+    - **Top-left panel**: the full L-curve over `λ ∈ 10^(−19:2:10)` with labeled points.
+    - **Center panels**: a zoomed view of the knee region with the refined L-curve, osculating circles, and radii drawn to their centers.
+    - **Bottom panel**: curvature vs. `λ` (log scale), with the knee marked in red.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    Moving the mouse cursor over the curvature plot updates the osculating circle in real time.
 
-### Step 3: Go live
+    <Note>
+      The demo uses the Shaw problem data that is hard-coded inside `Lcurve.m`, so no external data files are needed.
+    </Note>
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Load the Shaw test data and evaluate the L-curve manually">
+    To work with the Shaw problem yourself, copy the data directly from the function header. The following reproduces the first quick evaluation from the demo:
 
-## Next steps
+    ```matlab
+    % Shaw problem — 32x32 system (from Hansen's Regularization Tools)
+    A = [1.3751010548893718e-9, 1.3771432315506428e-7, ... % (32x32 matrix)
+         ...];
+    b = [0.5050056251193388; 0.6660900318226777; ...       % (32-element vector)
+         ...];
+    L = [];   % empty L means L = eye(32), i.e. 0th-order regularization
+    ```
 
-Now that you have your docs running, explore these key features:
+    <Tip>
+      The complete numerical values of `A` and `b` are in the header of `Lcurve.m`. Copy them from there into your script.
+    </Tip>
 
-<CardGroup cols={2}>
+    Warm up the matrix by pre-computing its SVD once — this is optional but speeds up repeated calls:
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    ```matlab
+    A = Lcurve(A);   % warm-up: precomputes and caches the SVD of A
+    ```
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    Now evaluate the L-curve over a coarse logarithmic grid:
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+    ```matlab
+    LAMBDAs = 10.^(-19:2:10);          % 15 values spanning lambda = 1e-19 to 1e10
+    XYKCs = Lcurve(A, b, L, LAMBDAs);
+    ```
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    `XYKCs` is a `15 × 5` matrix where each row corresponds to one `λ`:
 
-</CardGroup>
+    | Column | Meaning |
+    |--------|---------|
+    | `XYKCs(:,1)` | `log(\|A*x - b\|²)` — log residual norm (X coordinate) |
+    | `XYKCs(:,2)` | `log(\|L*x\|²)` — log regularization norm (Y coordinate) |
+    | `XYKCs(:,3)` | Analytic curvature of the log-L-curve at this `λ` |
+    | `XYKCs(:,4:5)` | Center of the osculating circle `[cx, cy]` |
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+    Plot the L-curve:
+
+    ```matlab
+    figure;
+    plot(XYKCs(:,1), XYKCs(:,2), '.:b');
+    xlabel('log( |A x - b|^2 )');
+    ylabel('log( |L x|^2 )');
+    title('L-curve');
+    axis equal;
+    ```
+
+    For a more precise view, refine the grid near the knee region:
+
+    ```matlab
+    LAMBDAs_fine = 10.^(-10:0.005:-2);   % denser grid: 1601 values
+    XYKCs_fine = Lcurve(A, b, L, LAMBDAs_fine);
+    ```
+  </Step>
+
+  <Step title="Find the optimal lambda automatically">
+    When `LAMBDAs` is omitted (or passed as empty), `Lcurve` searches for the `λ` that maximizes the analytic curvature of the log-L-curve — the knee of the L-curve. It starts from an initial grid of `λ ∈ 10^(−20:20)` and iteratively refines toward the maximum.
+
+    ```matlab
+    LAMBDA_knee = Lcurve(A, b, L);
+    fprintf('Optimal lambda: %.4e\n', LAMBDA_knee);
+    ```
+
+    You can also request the L-curve coordinates and curvature at the knee:
+
+    ```matlab
+    XYKC_atKnee = Lcurve(A, b, L, LAMBDA_knee);
+    fprintf('Residual norm (log): %.4f\n',      XYKC_atKnee(1));
+    fprintf('Regularization norm (log): %.4f\n', XYKC_atKnee(2));
+    fprintf('Curvature at knee: %.4f\n',         XYKC_atKnee(3));
+    ```
+
+    <Note>
+      To control the initial search range, pass a cell array as `LAMBDAs`. For example, `{-10:10}` restricts the search to `10^(−10:10)`, and `{10.^(-10:10)}` passes explicit lambda values as the starting exploration grid.
+    </Note>
+  </Step>
+
+  <Step title="Get the best solution x">
+    Use the two-output calling convention to retrieve both the regularized solution `x` at the knee and the curvature value there:
+
+    ```matlab
+    [x_best, K_knee] = Lcurve(A, b, L);
+    fprintf('Curvature at knee: %.4f\n', K_knee);
+    ```
+
+    `x_best` is the 32-element solution vector corresponding to the optimal `λ`. `K_knee` is the scalar curvature of the log-L-curve at that point.
+
+    To retrieve solutions for a specific set of lambdas instead of just the knee, use the two-output form with an explicit `LAMBDAs` vector:
+
+    ```matlab
+    LAMBDAs = 10.^(-10:0.5:-2);
+    [Xs, Ks] = Lcurve(A, b, L, LAMBDAs);
+    % Xs is (32 x 17): each column is the solution x for one lambda
+    % Ks is (17 x 5):  L-curve coordinates and curvatures
+    ```
+
+    <Tip>
+      When you plan to call `Lcurve` many times with the same `A` matrix but different `b` vectors or `λ` ranges, always warm up first with `A = Lcurve(A)` to avoid recomputing the SVD on every call.
+    </Tip>
+  </Step>
+</Steps>
+
+## Calling convention summary
+
+| Call | Returns |
+|------|---------|
+| `A = Lcurve(A)` | Warm-up: caches the SVD of `A` for fast repeated use |
+| `XYKCs = Lcurve(A, b, L, LAMBDAs)` | L-curve coordinates, curvatures, and osculating circle centers |
+| `[Xs, Ks] = Lcurve(A, b, L, LAMBDAs, METHOD)` | Solutions `Xs` (one column per `λ`) and curvature table `Ks` |
+| `LAMBDA_knee = Lcurve(A, b, L)` | Optimal `λ` (maximum curvature) |
+| `[x_best, K_knee] = Lcurve(A, b, L)` | Solution at the knee and its curvature |
+
+<Warning>
+  The `svd` method (default when `L = []`) requires a square or overdetermined system and assumes `L = I`. If you supply a non-identity `L`, the method automatically switches to `\` (backslash). You can override this with the `METHOD` argument.
+</Warning>

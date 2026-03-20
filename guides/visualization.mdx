@@ -1,0 +1,203 @@
+---
+title: Visualization
+description: Plot the L-curve, curvature, osculating circles, and the knee point using output from Lcurve.
+---
+
+The five columns of `XYKCs` are designed for visualization. This guide shows how to build the standard L-curve diagnostic figure using real code from `testing_Lcurve.m`.
+
+## Setup: evaluate a lambda grid
+
+Start with a coarse grid to get an overview, then refine near the knee:
+
+```matlab
+% Warm up the matrix (SVD computed once)
+A = Lcurve(A);
+
+% Coarse sweep
+LAMBDAs = 10.^(-19:2:10);
+K = Lcurve(A, b, L, LAMBDAs);
+```
+
+## Plotting the L-curve
+
+Columns 1 and 2 of `XYKCs` are the X and Y log-coordinates of the L-curve:
+
+```matlab
+figure;
+subplot(3,3,[1,4]);
+  plot(K(:,1), K(:,2), '.:b');
+  xlim([-17, 27]); ylim([-42, 37]); axis('equal');
+  xlabel('log( | A x - b |^2 )');
+  ylabel('log( | L x |^2 )');
+```
+
+### Labeling lambda values on the curve
+
+Use `text()` to annotate selected points with their lambda values:
+
+```matlab
+for i = ceil(numel(LAMBDAs) * [0.001, 0.1, 0.3, 0.5, 0.75, 0.9, 1])
+  text(K(i,1), K(i,2), sprintf(' \lambda=%.0e', LAMBDAs(i)), ...
+       'VerticalAlignment',   'bottom', ...
+       'HorizontalAlignment', 'left', ...
+       'FontSize', 8);
+  hold on;
+  plot(K(i,1), K(i,2), 'ob', 'MarkerSize', 4);
+  hold off;
+end
+```
+
+## Plotting curvature vs lambda
+
+Column 3 holds the curvature at each lambda. Use `semilogx` (or set `XScale` to `log`) to display it on a log lambda axis:
+
+```matlab
+subplot(3,3,7:9);
+  semilogx(LAMBDAs, K(:,3), '.:b');
+  xlim([1e-15, 1e5]);
+  xlabel('\lambda');
+  ylabel('Curvature log-Lcurve');
+```
+
+### LSplot: coloring positive and negative curvatures differently
+
+The `LSplot` helper function from the source plots negative curvatures in red and positive curvatures in black:
+
+```matlab
+LSplot = @(x, y, varargin) builtin('plot', ...
+    x, (abs(y) .* double(y < 0)), 'r', ...
+    x, (abs(y) .* double(y > 0)), 'k', ...
+    varargin{:});
+
+subplot(3,3,7:9);
+  LSplot(LAMBDAs, K(:,3), 'Marker', 'o', 'MarkerEdgeColor', 'b', 'LineStyle', '-');
+  set(gca, 'XScale', 'log', 'YScale', 'log');
+  xlim([1e-15, 1e5]);
+  ylim([1e-7,  1e5]);
+  xlabel('\lambda');
+  ylabel('Curvature log-Lcurve');
+```
+
+<Note>
+  `LSplot` uses `builtin('plot', ...)` to bypass any overloaded `plot` function you may have on your path.
+</Note>
+
+## Drawing osculating circles
+
+Columns 4 and 5 are the centers `(cx, cy)` of the osculating circles. The radius of the osculating circle at index `i` is `1/K(i,3)` (reciprocal of the curvature).
+
+```matlab
+% Generate a unit circle template
+C = linspace(0, 2*pi, 201).';
+C = [cos(C), sin(C)];
+
+subplot(3,3,[2,3,5,6]);
+  hold on;
+  for i = round(numel(LAMBDAs) * [0.3, 0.65])
+    % Draw the osculating circle
+    plot(C(:,1) * 1/K(i,3) + K(i,4), ...
+         C(:,2) * 1/K(i,3) + K(i,5), '-m');
+    % Draw the radius line from curve point to center
+    plot(K(i,[1,4]), K(i,[2,5]), 'o-m', ...
+         'MarkerEdgeColor', 'k', ...
+         'MarkerFaceColor', 'm', ...
+         'MarkerSize',      3);
+  end
+  hold off;
+```
+
+### Connecting curve points to osculating centers
+
+For a dense lambda grid you can draw all radii at once by interleaving the curve and center coordinates with `NaN` separators:
+
+```matlab
+% Dense refined grid
+LAMBDAs = 10.^(-10:0.005:-2);
+K = Lcurve(A, b, L, LAMBDAs);
+
+subplot(3,3,[2,3,5,6]); hold on;
+  % Build Nx2 array of line segments [curve_pt; center; NaN]
+  C = reshape(permute(cat(3, K(:,1:2), K(:,4:5), NaN(size(K,1),2)), [3,1,2]), [], 2);
+  % Plot every 5th radius line in grey
+  plot(C(1:5:end,1), C(1:5:end,2), '-', ...
+       'Color', [0,0,0]+0.7, ...
+       'XLimInclude', 'off', 'YLimInclude', 'off');
+  % L-curve in bold black
+  plot(K(:,1), K(:,2), 'k-', 'LineWidth', 2);
+  % Locus of osculating centers
+  plot(K(:,4), K(:,5), 'k-', 'XlimInclude', 'off', 'YlimInclude', 'off');
+  xlim([-10.524, -10.504]); ylim([3.459, 3.475]);
+hold off;
+```
+
+## Showing the knee point
+
+After finding the knee, mark it on all three subplots:
+
+```matlab
+LAMBDA_knee = Lcurve(A, b, L);
+K_knee = Lcurve(A, b, L, LAMBDA_knee);
+
+% Mark knee on L-curve subplot
+subplot(3,3,[2,3,5,6]); hold on;
+  plot(K_knee(1,1), K_knee(1,2), 'ok', ...
+       'MarkerFaceColor', 'r', 'MarkerSize', 4);
+  % Center of osculating circle at knee (green marker)
+  plot(K_knee(1,4), K_knee(1,5), 'ok', ...
+       'MarkerFaceColor', 'g', 'MarkerSize', 4);
+  % Osculating circle at knee
+  C = linspace(0, 2*pi, 201).'; C = [cos(C), sin(C)];
+  plot(C(:,1) * 1/K_knee(1,3) + K_knee(1,4), ...
+       C(:,2) * 1/K_knee(1,3) + K_knee(1,5), '-r');
+hold off;
+
+% Mark knee on curvature subplot
+subplot(3,3,7:9); hold on;
+  try, xline(LAMBDA_knee, ':r'); end
+  try, yline(K_knee(1,3), ':r'); end
+hold off;
+```
+
+## Interactive figure with WindowButtonMotionFcn
+
+The source demonstrates a live interactive figure that updates the osculating circle as you hover over the curvature subplot:
+
+```matlab
+% Set up animated handles
+subplot(3,3,[1,4]);
+  hP = line(NaN, NaN, 'Marker','o', 'Color','k', ...
+            'MarkerFaceColor','r', 'MarkerSize',4);
+
+subplot(3,3,[2,3,5,6]);
+  C  = linspace(0, 2*pi, 201).'; C = [cos(C), sin(C)];
+  hT = hgtransform();
+  line(C(:,1), C(:,2), 'Parent', hT, 'Color', 'r');
+  line(0, 0, 'Marker','o', 'Color','k', ...
+       'MarkerFaceColor','g', 'MarkerSize',4, 'Parent', hT);
+  hP(2) = line(NaN, NaN, 'Marker','o', 'Color','k', ...
+               'MarkerFaceColor','r', 'MarkerSize',4);
+
+subplot(3,3,7:9);
+  hL = line(NaN(2,1), NaN(2,1), 'Marker','o', 'Color','m');
+
+% Update functions
+update_ = @(K) [ ...
+    set(hT, 'Matrix', [eye(3)/abs(K(3)), [K(4:5)';0]; 0,0,0,1]); ...
+    set(hP, 'XData', K(1), 'YData', K(2)); ...
+    set(hL, 'YData', [1e-9, abs(K(3))]) ];
+
+update = @(LAMBDA) [ ...
+    true; ...
+    update_(Lcurve(A, b, L, LAMBDA)); ...
+    set(hL, 'XData', [0,0] + LAMBDA) ];
+
+% Initialize at knee and attach motion callback
+update(LAMBDA_knee);
+set(ancestor(hL,'figure'), 'WindowButtonMotionFcn', ...
+    @(h,e) isequal(ancestor(hittest(),'axes'), get(hL,'Parent')) && ...
+           update(mean(get(get(hL,'Parent'),'CurrentPoint')) * [1;0;0]));
+```
+
+<Tip>
+  The `hgtransform` object lets you scale and translate the unit circle efficiently without recomputing the trigonometric values on every callback.
+</Tip>

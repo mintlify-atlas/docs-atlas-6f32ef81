@@ -1,0 +1,120 @@
+---
+title: Tikhonov Regularization
+description: Understanding the mathematical foundation behind regularized least-squares problems that the Lcurve function solves.
+---
+
+Many practical inverse problems — recovering an image from blurred measurements, estimating subsurface properties from seismic data, or deconvolving a signal — are **ill-posed**: small perturbations in the observed data `b` can cause arbitrarily large changes in the naive least-squares solution. Tikhonov regularization is the standard remedy.
+
+## Ill-posed inverse problems
+
+Given a forward model `A` and noisy observations `b`, the goal is to find `x` such that `Ax ≈ b`. When `A` is ill-conditioned or underdetermined, the unregularized solution `x = A\b` amplifies measurement noise catastrophically.
+
+Typical examples include:
+
+- **Image deblurring** — recovering a sharp image from a blurred, noisy photograph
+- **Geophysical inversion** — estimating subsurface density from gravity measurements
+- **Heat equation inversion** — reconstructing a past temperature field from present measurements
+- **Spectral deconvolution** — separating overlapping spectral peaks
+
+In all of these, the forward operator `A` smooths or averages information, making the inverse problem inherently unstable.
+
+## The Tikhonov formulation
+
+Tikhonov regularization stabilizes the problem by adding a penalty on the solution norm:
+
+```
+minimize  ||A·x - b||² + λ·||L·x||²
+```
+
+This is exactly the problem the `Lcurve` function solves for each value in `LAMBDAs`:
+
+```matlab
+Xs(:,i) = argmin  | A * x - b |^2 + LAMBDAs(i) * | L * x |^2
+```
+
+### What each term means
+
+| Symbol | Role |
+|--------|------|
+| `A` | Forward operator (system matrix), size `m × n` |
+| `b` | Observed data (right-hand side), length `m` |
+| `x` | Unknown solution to recover, length `n` |
+| `L` | Regularization operator, size `p × n` |
+| `λ` | Regularization parameter (non-negative scalar) |
+| `\|\|A·x - b\|\|²` | Data fidelity: how well `x` explains the observations |
+| `\|\|L·x\|\|²` | Regularization penalty: how much `x` is penalized |
+
+The two terms compete. A good solution must fit the data reasonably while keeping `L·x` small.
+
+## The role of λ
+
+The regularization parameter `λ` controls the balance between data fit and solution smoothness:
+
+<CardGroup cols={2}>
+  <Card title="λ too small" icon="triangle-alert">
+    The penalty has negligible effect. The solution overfits noise in `b`, producing a highly oscillatory or noisy `x`. This is the unregularized regime.
+  </Card>
+  <Card title="λ too large" icon="triangle-alert">
+    The penalty dominates. The solution is pushed toward the null space of `L`, producing an oversmoothed `x` that ignores the data. The residual `||Ax - b||` becomes large.
+  </Card>
+</CardGroup>
+
+The optimal `λ` lies between these extremes — at the **knee of the L-curve**. See [L-curve criterion](/concepts/lcurve-criterion) for how to find it.
+
+## The regularization operator L
+
+The choice of `L` encodes prior knowledge about the structure of `x`:
+
+- **`L = []` (identity, 0th order)** — penalizes the energy of `x` directly. This is the default when `L` is passed as empty. The `Lcurve` function internally sets `L = eye(n)`.
+- **1st order difference operator** — penalizes differences between adjacent elements, encouraging piecewise-constant solutions.
+- **2nd order difference operator** — penalizes second differences, encouraging piecewise-linear (smooth) solutions.
+
+<Note>
+Passing `L = []` to `Lcurve` is equivalent to `L = eye(size(A,2))`. This is 0th-order Tikhonov regularization, also called ridge regression or Tikhonov–Phillips regularization.
+</Note>
+
+## Normal equations
+
+Setting the gradient of the objective to zero yields the **normal equations**:
+
+```
+(A'A + λ L'L) x = A'b
+```
+
+This is a symmetric positive (semi)definite linear system of size `n × n`. The `Lcurve` function solves this system for each `λ` using one of several numerical methods (SVD, backslash, Cholesky decomposition, etc.).
+
+```matlab
+% The Lcurve function precomputes these quantities for efficiency:
+AA = A' * A;   % n × n symmetric matrix
+LL = L' * L;   % n × n symmetric matrix
+Ab = A' * b;   % n × 1 right-hand side
+
+% For each λ, the solution satisfies:
+% (AA + λ * LL) * x = Ab
+```
+
+<Tip>
+For the SVD method (used automatically when `L = []`), the `Lcurve` function can pre-factor `A` once with `A = Lcurve(A)` and reuse the decomposition across all values of `λ`. This is significantly faster when sweeping many regularization values.
+</Tip>
+
+## Solving in practice
+
+The `Lcurve` function handles all of this automatically. You provide `A`, `b`, `L`, and a vector of candidate `λ` values; it returns the L-curve coordinates, curvatures, and optionally the solutions:
+
+```matlab
+% Sweep over a range of regularization values
+LAMBDAs = 10.^(-10:0.1:2);
+XYKCs = Lcurve(A, b, L, LAMBDAs);
+
+% Or find the optimal λ automatically
+[x_best, K_knee] = Lcurve(A, b, L);
+```
+
+The function returns `XYKCs`, a matrix whose columns are the log-residual norm, log-regularization norm, curvature, and osculating circle centers — everything needed to analyze the L-curve. See [L-curve criterion](/concepts/lcurve-criterion) and [curvature](/concepts/curvature) for details.
+
+## Reference
+
+The formulation and examples in `Lcurve` follow Hansen's **Regularization Tools**:
+
+> P. C. Hansen, "Regularization Tools: A MATLAB package for analysis and solution of discrete ill-posed problems," *Numerical Algorithms* 6 (1994), 1–35.
+> [RTv4 manual (PDF)](http://www2.compute.dtu.dk/~pcha/Regutools/RTv4manual.pdf)

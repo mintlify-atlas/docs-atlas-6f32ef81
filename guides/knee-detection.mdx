@@ -1,0 +1,172 @@
+---
+title: Knee Detection
+description: Automatically find the optimal regularization parameter at the knee of the L-curve.
+---
+
+The knee of the L-curve is the point of maximum curvature — the corner where the residual norm and the regularization norm are simultaneously well-balanced. `Lcurve` can locate this point automatically through an iterative search without any manual lambda selection.
+
+## Automatic knee detection
+
+Omit `LAMBDAs` entirely (or pass `[]`) to trigger the iterative search:
+
+```matlab
+LAMBDA_knee = Lcurve(A, b, L);
+```
+
+This returns the single scalar `LAMBDA_knee` at the maximum curvature point.
+
+<Note>
+  Passing `LAMBDAs = []` explicitly is equivalent to omitting it:
+
+  ```matlab
+  LAMBDA_knee = Lcurve(A, b, L, []);
+  ```
+</Note>
+
+## How the iterative search works
+
+The algorithm narrows the search range around the curvature maximum over up to 100 iterations:
+
+<Steps>
+  <Step title="Initial exploration">
+    The function evaluates the L-curve over an initial set of log-spaced lambdas:
+
+    ```
+    10^(-20), 10^(-19), ..., 10^(20)   (41 values)
+    ```
+
+    The lambda with the highest curvature is identified.
+  </Step>
+  <Step title="Range refinement">
+    A new, narrower search window is centered on the current best lambda. The window width is reduced to one-third of the previous range, and 8 new candidate values are evaluated.
+  </Step>
+  <Step title="Convergence">
+    Steps 1–2 repeat for up to 100 iterations, or until the search window collapses to a single value. The median of the surviving candidates becomes `LAMBDA_knee`.
+  </Step>
+</Steps>
+
+Progress is printed to the console whenever an evaluation takes more than 5 seconds:
+
+```
+Exploring 41 values in the range 10^( 0 ± 20 ).
+Exploring 8 values in the range 10^( -5.2 ± 1.7 ).
+...
+```
+
+## Customizing the initial search range
+
+Pass a **cell array** to override the default `10^(-20:20)` starting range.
+
+<CardGroup cols={2}>
+  <Card title="Exponents as integers">
+    If the cell contains values less than `eps(1)`, they are treated as **exponents** (powers of 10):
+
+    ```matlab
+    % Search 10^(-10) to 10^(5)
+    LAMBDA_knee = Lcurve(A, b, L, {-10:5});
+    ```
+  </Card>
+  <Card title="Actual lambda values">
+    If all values are ≥ `eps(1)`, they are treated as **actual lambda values**:
+
+    ```matlab
+    % Same range, explicit values
+    LAMBDA_knee = Lcurve(A, b, L, {10.^(-10:5)});
+    ```
+  </Card>
+</CardGroup>
+
+<Tip>
+  If you already have a rough idea of the knee location from a preliminary plot, narrow the initial search range to speed up convergence significantly.
+</Tip>
+
+## Two-output convention: solution at the knee
+
+With two output arguments the function returns the **regularized solution** and its **curvature** instead of the lambda value:
+
+```matlab
+[X_atKnee, K_atKnee] = Lcurve(A, b, L);
+```
+
+- `X_atKnee` — the solution vector `x` at `LAMBDA_knee`
+- `K_atKnee` — the curvature of the L-curve at that point
+
+This is the most concise way to solve a regularized inverse problem:
+
+```matlab
+% Best solution in one line
+[x_best, K_knee] = Lcurve(A, b, L);
+```
+
+All of these forms are equivalent:
+
+```matlab
+[X_atKnee, K_atKnee] = Lcurve(A, b, L);
+[X_atKnee, K_atKnee] = Lcurve(A, b, L, []);
+[X_atKnee, K_atKnee] = Lcurve(A, b, L, [], []);
+[X_atKnee, K_atKnee] = Lcurve(A, b, L, {-20:20});
+[X_atKnee, K_atKnee] = Lcurve(A, b, L, {10.^(-20:20)});
+```
+
+## Refining after automatic detection
+
+Once you have `LAMBDA_knee` you can retrieve the full `XYKCs` row at that point for plotting or further analysis:
+
+```matlab
+LAMBDA_knee   = Lcurve(A, b, L);
+XYKC_atKnee   = Lcurve(A, b, L, LAMBDA_knee);
+```
+
+Or in a single nested call:
+
+```matlab
+XYKC_atKnee = Lcurve(A, b, L, Lcurve(A, b, L));
+```
+
+`XYKC_atKnee` is a `1×5` matrix. Extract what you need:
+
+```matlab
+log_res2  = XYKC_atKnee(1);   % log(‖Ax - b‖²)
+log_reg2  = XYKC_atKnee(2);   % log(‖Lx‖²)
+curvature = XYKC_atKnee(3);   % κ at knee
+center_x  = XYKC_atKnee(4);   % osculating circle center x
+center_y  = XYKC_atKnee(5);   % osculating circle center y
+```
+
+## Full example with the Shaw problem
+
+```matlab
+% Shaw test problem — 32×32 matrix
+A = [1.3751010548893718e-9, ...];  % hard-coded in Lcurve.m
+b = [0.5050056251193388; ...];
+L = [];  % identity (0th-order regularization)
+
+% Warm-up for speed (SVD computed once)
+A = Lcurve(A);
+
+% Step 1: coarse sweep to visualize the curve
+LAMBDAs = 10.^(-19:2:10);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+figure;
+plot(XYKCs(:,1), XYKCs(:,2), '.:b');
+xlabel('log( | A x - b |^2 )');
+ylabel('log( | L x |^2 )');
+
+% Step 2: automatic knee detection
+LAMBDA_knee  = Lcurve(A, b, L);
+XYKC_atKnee  = Lcurve(A, b, L, LAMBDA_knee);
+
+% Mark the knee on the plot
+hold on;
+plot(XYKC_atKnee(1), XYKC_atKnee(2), 'ok', ...
+     'MarkerFaceColor', 'r', 'MarkerSize', 6);
+hold off;
+
+fprintf('Optimal lambda = %.4e\n', LAMBDA_knee);
+fprintf('Curvature at knee = %.4f\n', XYKC_atKnee(3));
+```
+
+<Warning>
+  For very large systems the initial 41-point sweep can be slow. Pre-warm the matrix with `A = Lcurve(A)` (when `L = []`) or supply precomputed `AA`, `LL`, `Ab` arguments to avoid redundant computation across iterations.
+</Warning>

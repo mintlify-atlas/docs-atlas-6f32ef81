@@ -1,0 +1,176 @@
+---
+title: 'Outputs'
+description: 'Return values from the Lcurve function: the XYKCs matrix, solution matrix, curvature vector, warm-up cell, and knee-search scalar.'
+---
+
+## Output modes
+
+The return values depend on the number of output arguments requested (`nargout`) and whether `LAMBDAs` is supplied or empty.
+
+| Call pattern | nargout | Returns |
+|---|---|---|
+| `A = Lcurve(A)` | 1 | Warm-up cell `{A, V, d2}` |
+| `XYKCs = Lcurve(A,b,L,LAMBDAs)` | 1 | N×5 log-L-curve matrix |
+| `[Xs, Ks] = Lcurve(A,b,L,LAMBDAs,METHOD)` | 2 | Solution matrix + curvature vector |
+| `LAMBDA_knee = Lcurve(A,b,L)` | 1 | Scalar knee lambda |
+| `[X_atKnee, K_atKnee] = Lcurve(A,b,L)` | 2 | Solution at knee + curvature at knee |
+
+---
+
+## XYKCs — log-L-curve matrix
+
+<ResponseField name="XYKCs" type="N×5 matrix">
+  Returned when a numeric `LAMBDAs` array is provided and `nargout == 1`. Each row corresponds to one value of `LAMBDAs`. All curvatures are computed analytically — no finite differences are used.
+
+  <Expandable title="columns">
+    <ResponseField name="XYKCs(:,1)" type="double">
+      **X coordinate** of the log-L-curve:
+
+      ```
+      XYKCs(i,1) = log( | A * x - b |^2 )
+      ```
+
+      Log of the squared residual norm for the solution `x` at `LAMBDAs(i)`.
+    </ResponseField>
+
+    <ResponseField name="XYKCs(:,2)" type="double">
+      **Y coordinate** of the log-L-curve:
+
+      ```
+      XYKCs(i,2) = log( | L * x |^2 )
+      ```
+
+      Log of the squared regularization norm for the solution `x` at `LAMBDAs(i)`.
+    </ResponseField>
+
+    <ResponseField name="XYKCs(:,3)" type="double">
+      **Curvature** of the log-L-curve at the i-th point. Computed analytically using the parametric curvature formula
+
+      ```
+      K = ( x' y'' - x'' y' ) / ( x'^2 + y'^2 )^(3/2)
+      ```
+
+      where primes denote derivatives with respect to the regularization parameter. No finite differences are involved.
+
+      The knee of the L-curve corresponds to the index of maximum curvature:
+
+      ```matlab
+      [~, i_knee] = max( XYKCs(:,3) );
+      ```
+    </ResponseField>
+
+    <ResponseField name="XYKCs(:,4:5)" type="double">
+      **Osculating circle centers** in log-L-curve space. Column 4 is the x-coordinate and column 5 is the y-coordinate of the center of the osculating circle at the i-th point.
+
+      The osculating circle has radius `1 / XYKCs(i,3)` and is centered at `XYKCs(i,4:5)`. Use it to visualize local curvature:
+
+      ```matlab
+      C = linspace(0, 2*pi, 201).'; C = [ cos(C) , sin(C) ];
+      r = 1 / XYKCs(i,3);
+      plot( C(:,1)*r + XYKCs(i,4) , C(:,2)*r + XYKCs(i,5) );
+      ```
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Two-output mode — solutions and curvatures
+
+When `nargout == 2` and a numeric `LAMBDAs` array is provided, the return convention swaps:
+
+<ResponseField name="Xs" type="(n·k) × N matrix">
+  **Solution matrix** returned as the first output. Each column holds the vectorized solution for one value of `LAMBDAs`:
+
+  ```
+  Xs(:,i) = vec( argmin | A*x - b |^2 + LAMBDAs(i) * | L*x |^2 )
+  ```
+
+  Size is `(size(A,2) * size(b,2)) × numel(LAMBDAs)`. For a single right-hand side (`b` is m×1) the column is simply the n×1 solution vector.
+
+  ```matlab
+  [ Xs , Ks ] = Lcurve( A , b , L , LAMBDAs );
+  x_at_i = reshape( Xs(:,i) , size(A,2) , [] );
+  ```
+</ResponseField>
+
+<ResponseField name="Ks" type="N×1 vector">
+  **Curvature vector** returned as the second output. Equivalent to `XYKCs(:,3)` from single-output mode — the analytically computed curvature at each lambda.
+
+  ```matlab
+  [ Xs , Ks ] = Lcurve( A , b , L , LAMBDAs );
+  [~, i_knee] = max( Ks );   % index of maximum curvature
+  x_best      = Xs(:, i_knee);
+  ```
+</ResponseField>
+
+---
+
+## Warm-up cell
+
+<ResponseField name="warmup" type="cell {A, V, d2}">
+  Returned by the single-argument warm-up call `A = Lcurve(A)`. Contains the SVD factorization of `A` for reuse in subsequent calls.
+
+  <Expandable title="cell contents">
+    <ResponseField name="warmup{1}" type="matrix">
+      The original system matrix `A` (m × n).
+    </ResponseField>
+
+    <ResponseField name="warmup{2}" type="matrix">
+      Right singular vectors `V` from `[~, d, V] = svd(A)`. Size n × min(m,n).
+    </ResponseField>
+
+    <ResponseField name="warmup{3}" type="vector">
+      Squared singular values `d2 = diag(d).^2`, padded with zeros to length n.
+    </ResponseField>
+  </Expandable>
+
+  Pass this cell directly as the first argument `A` to any subsequent call:
+
+  ```matlab
+  A_warm = Lcurve( A );                           % factorize once
+  XYKCs  = Lcurve( A_warm , b1 , L , LAMBDAs );  % reuse factorization
+  XYKCs  = Lcurve( A_warm , b2 , L , LAMBDAs );  % again, no SVD cost
+  ```
+
+  <Note>
+  The warm-up cell is only compatible with the `'svd'` method. For other methods, pass `A` as a plain matrix.
+  </Note>
+</ResponseField>
+
+---
+
+## Knee-search mode
+
+When `LAMBDAs` is empty or omitted, the function performs an iterative knee search.
+
+<ResponseField name="LAMBDA_knee" type="scalar double">
+  Returned when `nargout == 1` in knee-search mode. The regularization parameter at which the log-L-curve curvature is maximized.
+
+  ```matlab
+  LAMBDA_knee = Lcurve( A , b , L );
+  LAMBDA_knee = Lcurve( A , b , L , [] );
+  ```
+
+  Use this value to evaluate the full L-curve row at the knee:
+
+  ```matlab
+  XYKC_atKnee = Lcurve( A , b , L , LAMBDA_knee );
+  ```
+</ResponseField>
+
+<ResponseField name="X_atKnee" type="vector">
+  Returned as the **first output** when `nargout == 2` in knee-search mode. The regularized solution vector (or matrix) at `LAMBDA_knee`.
+
+  ```matlab
+  [ x_best , K_knee ] = Lcurve( A , b , L );
+  ```
+</ResponseField>
+
+<ResponseField name="K_atKnee" type="scalar double">
+  Returned as the **second output** when `nargout == 2` in knee-search mode. The curvature of the log-L-curve at the knee point.
+
+  ```matlab
+  [ x_best , K_knee ] = Lcurve( A , b , L );
+  ```
+</ResponseField>

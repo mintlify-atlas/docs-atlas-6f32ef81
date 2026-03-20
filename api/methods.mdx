@@ -1,0 +1,201 @@
+---
+title: 'Methods'
+description: 'Solver method options for the Lcurve function: svd, backslash, symmetrized variants, explicit inverse, and decomposition object.'
+---
+
+## Overview
+
+The `METHOD` argument controls how `Lcurve` solves the normal equations
+
+```
+( A'A + λ L'L ) \ ( A'b )
+```
+
+at each value of `λ`. The default is selected automatically based on whether `L` is the identity:
+
+```matlab
+if L == []  →  METHOD = 'svd'
+if L ~= []  →  METHOD = '\'
+```
+
+Pass `METHOD` as the fifth argument or pass `[]` to accept the default.
+
+---
+
+## Default selection logic
+
+```matlab
+% default is chosen inside Lcurve after computing LL:
+if isscalar(LL) && isequal(LL, 1)   % L was [] → identity
+    METHOD = 'svd';
+else
+    METHOD = '\';
+end
+```
+
+`LL` is set to the scalar `1` whenever `L` is empty or when `L'*L` equals `eye(n)` exactly. In that case the SVD path is available; otherwise backslash is the default.
+
+---
+
+## Method reference
+
+### `'svd'`
+
+```matlab
+XYKCs = Lcurve( A , b , [] , LAMBDAs , 'svd' );
+```
+
+Uses the thin SVD decomposition `[~, d, V] = svd(A)`. The solution at each `λ` is computed as:
+
+```matlab
+d2_t  = d2 + lambda;
+IAb   = V * ( (V.' * Ab) ./ d2_t );
+```
+
+where `d2` contains the squared singular values.
+
+**When to use:** Only valid when `L = []` (identity regularization). This is the default for that case. It is the most efficient method when `A` is fixed across many calls because the SVD warm-up (via `Lcurve(A)`) can be reused at zero additional factorization cost.
+
+**Constraint:** Raises `SVD method only can be used for L = Id.` if `L` is not the identity.
+
+<Tip>
+Combine with the warm-up call to maximize efficiency:
+
+```matlab
+A_warm = Lcurve( A );    % SVD computed once
+for k = 1:N
+    XYKCs = Lcurve( A_warm , b{k} , [] , LAMBDAs );
+end
+```
+</Tip>
+
+---
+
+### `'\'` — backslash
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , '\' );
+```
+
+Solves the normal equations using MATLAB's backslash operator:
+
+```matlab
+D   = AA + lambda * LL_;
+IAb = D \ Ab;
+```
+
+**When to use:** Default method when `L` is not the identity. Recommended by MathWorks over `inv()` for both execution time and numerical accuracy (see source inline comment citing Rump 2009).
+
+`MATLAB:nearlySingularMatrix` warnings are suppressed during the loop for performance.
+
+---
+
+### `'\/'` or `'/\'` — symmetrized backslash
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , '\/' );
+```
+
+Computes a symmetrized solve by averaging the forward and transposed backslash solutions:
+
+```matlab
+D   = AA + lambda * LL_;
+IAb = ( (D \ Ab) + (Ab.' / D.').' ) / 2;
+```
+
+**When to use:** When numerical symmetry of the solution matters and the small extra cost (one additional triangular solve per lambda) is acceptable. May improve accuracy for nearly-symmetric-but-not-quite systems compared to plain `'\'`.
+
+---
+
+### `'inv'`
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , 'inv' );
+```
+
+Explicitly forms the inverse matrix using MATLAB's `inv()` function:
+
+```matlab
+D   = AA + lambda * LL_;
+I   = inv( D );
+IAb = I * Ab;
+```
+
+<Warning>
+The source code warns explicitly: **"always avoid as much as possible the use of `inv`" — "actually never, never use `inv`"**. MathWorks classifies `inv` as a function for academic purposes only. It is slower and numerically less accurate than backslash for solving linear systems. Use `'\'` instead.
+</Warning>
+
+---
+
+### `'\eye'`
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , '\eye' );
+```
+
+Computes an explicit dense inverse column-wise using backslash:
+
+```matlab
+D   = AA + lambda * LL_;
+I   = D \ eye( size(D,2) );
+IAb = I * Ab;
+```
+
+**When to use:** An alternative to `'inv'` that leverages backslash internally. Still forms the full dense inverse, so accuracy is marginally better than `'inv'` but significantly worse than solving directly with `'\'`. Useful mainly for comparison or debugging.
+
+---
+
+### `'/\eye'` or `'\/eye'` — symmetrized eye
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , '/\eye' );
+```
+
+Forms a symmetrized dense inverse:
+
+```matlab
+D = AA + lambda * LL_;
+I = ( D \ eye(size(D,2)) + eye(size(D,2)) / D ) / 2;
+```
+
+**When to use:** Symmetrized counterpart of `'\eye'`. Adds the cost of an additional solve to enforce symmetry in the explicit inverse. Prefer `'\/'` over this method for direct solves.
+
+---
+
+### `'decomposition'`
+
+```matlab
+XYKCs = Lcurve( A , b , L , LAMBDAs , 'decomposition' );
+```
+
+Uses MATLAB's `decomposition` object with Cholesky factorization:
+
+```matlab
+D = AA + lambda * LL_;
+D = decomposition( D , 'CheckCondition', false );
+IAb = D \ Ab;
+```
+
+If the matrix is not positive definite and `decomposition` selects a factorization other than Cholesky, a warning is issued: `Other than Cholesky decomposition was chosen.!`
+
+**When to use:** When MATLAB's `decomposition` object is preferred for its object-oriented interface or when integrating with other code that uses it. Reference: Davis, "Algorithm 930: FACTORIZE: An Object-Oriented Linear System Solver for MATLAB," ACM Transactions on Mathematical Software 39, no. 4 (July 2013): 1–18.
+
+`CheckCondition` is disabled for performance since condition checking is not needed in the L-curve loop.
+
+---
+
+## Comparison summary
+
+| Method | L = Id? | Forms explicit inverse? | Relative cost | Notes |
+|---|---|---|---|---|
+| `'svd'` | Required | No | Lowest (with warm-up) | Reuses SVD factorization |
+| `'\'` | Any | No | Low | Default for L ≠ Id; recommended |
+| `'\/'` | Any | No | Low + 1 solve | Symmetrized backslash |
+| `'\eye'` | Any | Yes | Medium | Column-wise via backslash |
+| `'/\eye'` | Any | Yes | Medium + 1 solve | Symmetrized eye variant |
+| `'decomposition'` | Any | No | Low | MATLAB decomposition object |
+| `'inv'` | Any | Yes | Medium | **Not recommended** |
+
+<Note>
+All methods suppress `MATLAB:nearlySingularMatrix` warnings during the lambda loop. For highly ill-conditioned problems, monitor the residual norms in `XYKCs(:,1)` directly rather than relying on MATLAB's condition warnings.
+</Note>

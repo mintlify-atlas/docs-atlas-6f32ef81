@@ -1,0 +1,175 @@
+---
+title: Curvature of the L-curve
+description: How the Lcurve function analytically computes the curvature of the log-L-curve and what the osculating circle geometry means.
+---
+
+Finding the knee of the L-curve reduces to finding the point of **maximum curvature** on the log-L-curve. The `Lcurve` function computes this curvature analytically — without finite differences — for each regularization parameter `λ`.
+
+## Mathematical definition
+
+For a smooth parametric curve `r(t) = [x(t), y(t)]` in the plane, the signed curvature is:
+
+```
+K(t) = (x'·y'' - x''·y') / (x'² + y'²)^(3/2)
+```
+
+where primes denote derivatives with respect to the curve parameter `t`. In the L-curve setting, `t = λ` (or equivalently `log λ`), and:
+
+- `x(λ) = log( ||A·x(λ) - b||² )` — log residual norm squared
+- `y(λ) = log( ||L·x(λ)||² )` — log regularization norm squared
+
+The curvature `K` measures how sharply the curve bends at each point. A large positive `K` indicates a tight concave corner — exactly what the knee of the L-shape looks like.
+
+## Why analytic curvature matters
+
+Finite-difference approximations of curvature require evaluating the curve at multiple nearby `λ` values and subtracting nearly equal numbers, which introduces significant numerical error. This is especially problematic near the knee where accurate curvature values matter most.
+
+<CardGroup cols={2}>
+  <Card title="Finite differences" icon="x">
+    Require extra function evaluations at perturbed λ values. Suffer from cancellation error when λ values are close together. Accuracy degrades precisely at the knee where resolution is most needed.
+  </Card>
+  <Card title="Analytic curvature" icon="check">
+    Computed in a single pass per λ value. No perturbation or subtraction of nearby quantities. Exact up to floating-point arithmetic. Enables very dense λ sweeps without additional cost.
+  </Card>
+</CardGroup>
+
+## How Lcurve computes it
+
+The `Lcurve` function derives the first and second derivatives of `x(λ)` with respect to `λ` using matrix calculus. The derivatives of `log(||Ax - b||²)` and `log(||Lx||²)` with respect to `λ` were obtained using [matrixcalculus.org](http://www.matrixcalculus.org/), a symbolic matrix derivative tool.
+
+Internally, the computation builds up intermediate quantities step by step:
+
+```matlab
+% x(λ) = (A'A + λ L'L)^{-1} A'b  =:  IAb
+IAb    = solve(AA + t*LL, Ab);       % the solution x(λ)
+LLIAb  = LL * IAb;                   % L'L · x(λ)
+ILLIAb = solve(AA + t*LL, LLIAb);   % (A'A + λL'L)^{-1} L'L x(λ)
+
+% Squared norms
+res2 = norm(A*IAb - b)^2;   % ||Ax - b||^2
+reg2 = IAb' * LLIAb;        % ||Lx||^2  (= x' L'L x)
+
+% Key intermediate scalar  (proportional to dx/dλ projected onto residual)
+w = ILLIAb'*AA*IAb - reg2;
+
+% First derivatives (unnormalized):
+%   x'(λ) = w / res2
+%   y'(λ) = -ILLIAb'*LLIAb / reg2
+
+% Numerator of the curvature formula: x'y'' - x''y'
+KK = + (3 * bAILLILLIAb/w) * (ILLIAb' * AA * ILLIAb) ...
+     -  3 *                   (ILLIAb' * LL * ILLIAb) ...
+     + (2 * bAILLILLIAb)   * (bAILLILLIAb/reg2 - w/res2 - bAILLILLIAb/w);
+
+% Full curvature
+K = KK * (w/(reg2*res2)) / sqrt((w/res2)^2 + (bAILLILLIAb/reg2)^2)^3;
+```
+
+All quantities are derived from the same matrix solve already performed for the solution `x(λ)`, so the curvature comes at negligible additional cost.
+
+<Note>
+The `Lcurve` source code notes: *"analytically computed, no finite differences at all!"* — emphasizing that `XYKCs(i,3)` is an exact analytic quantity, not a numerical approximation.
+</Note>
+
+## Output: XYKCs(:,3)
+
+The curvature at each λ is stored in the third column of the output matrix:
+
+```matlab
+LAMBDAs = 10.^(-10:0.05:2);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+% XYKCs(:,3) contains the signed curvature at each λ
+semilogx(LAMBDAs, XYKCs(:,3));
+xlabel('\lambda');
+ylabel('Curvature of log-L-curve');
+```
+
+The knee of the L-curve corresponds to the maximum of `XYKCs(:,3)`:
+
+```matlab
+[K_max, idx] = max(XYKCs(:,3));
+LAMBDA_knee  = LAMBDAs(idx);
+fprintf('Knee at λ = %.3e, curvature = %.4f\n', LAMBDA_knee, K_max);
+```
+
+## Negative curvatures
+
+Away from the knee, the curvature can become negative. This occurs where the log-L-curve bends in the opposite direction — the concave side switches. The sign of `K` carries geometric meaning:
+
+| Sign of K | Geometry |
+|-----------|----------|
+| Positive | Curve bends toward the upper-left (toward the knee) |
+| Negative | Curve bends away from the knee |
+
+The `Lcurve` demo code plots these separately for clarity:
+
+```matlab
+% Negative curvatures in red, positive in black
+LSplot = @(x,y,varargin) builtin('plot', ...
+    x, abs(y).*double(y<0), 'r', ...
+    x, abs(y).*double(y>0), 'k', varargin{:});
+LSplot(LAMBDAs, XYKCs(:,3), 'Marker', 'o', 'LineStyle', '-');
+set(gca, 'XScale', 'log', 'YScale', 'log');
+```
+
+<Warning>
+Do not take the maximum of `abs(XYKCs(:,3))` to find the knee — a large negative curvature far from the knee would be selected instead. Always maximize the signed curvature `XYKCs(:,3)` directly.
+</Warning>
+
+## The osculating circle
+
+The curvature `K` at a point on a curve defines an **osculating circle**: the unique circle that is tangent to the curve at that point and has radius `r = 1/K`. It is the best circular approximation to the curve locally.
+
+The `Lcurve` function computes the center of the osculating circle for each λ and stores it in `XYKCs(i,4:5)`:
+
+- `XYKCs(i,4)` — x-coordinate of the osculating circle center (in log-residual space)
+- `XYKCs(i,5)` — y-coordinate of the osculating circle center (in log-regularization space)
+
+The center lies at distance `1/K` from the curve point along the inward unit normal `N`:
+
+```matlab
+% From the Lcurve source:
+N = [bAILLILLIAb/reg2 ; -w/res2];   % normal direction vector
+N = N / norm(N);                     % unit normal
+
+XYKCs(i,4:5) = XYKCs(i,1:2) + N.' / K;   % center = point + (1/K)*N
+```
+
+### Visualizing the osculating circle
+
+```matlab
+LAMBDAs = 10.^(-8:0.005:-4);
+XYKCs   = Lcurve(A, b, L, LAMBDAs);
+
+figure;
+plot(XYKCs(:,1), XYKCs(:,2), 'k-', 'LineWidth', 2);
+hold on;
+
+% Draw the osculating circle at the point of maximum curvature
+[~, idx] = max(XYKCs(:,3));
+C = linspace(0, 2*pi, 201)';
+C = [cos(C), sin(C)];
+r = 1 / XYKCs(idx, 3);                       % radius
+cx = XYKCs(idx, 4);  cy = XYKCs(idx, 5);     % center from XYKCs(:,4:5)
+plot(C(:,1)*r + cx, C(:,2)*r + cy, '-r');
+plot(XYKCs(idx,1), XYKCs(idx,2), 'ok', 'MarkerFaceColor','r', 'MarkerSize', 6);
+plot(cx, cy, 'ok', 'MarkerFaceColor', 'g', 'MarkerSize', 6);
+plot([XYKCs(idx,1), cx], [XYKCs(idx,2), cy], '-m');
+
+xlabel('log( | Ax - b |^2 )');
+ylabel('log( | Lx |^2 )');
+hold off;
+```
+
+The osculating circle center (green marker) and the knee point (red marker) together illustrate the radius of curvature geometrically. Near the knee, the circle is small (high curvature); on the flat branches, the circle is very large (low curvature).
+
+<Tip>
+The radii connecting curve points to their osculating circle centers — stored as `XYKCs(:,4:5)` — can be plotted as a family of lines to visualize how curvature evolves along the entire L-curve, not just at the knee.
+
+```matlab
+% Draw radii to osculating circle centers
+C = reshape(permute(cat(3, XYKCs(:,1:2), XYKCs(:,4:5), NaN(size(XYKCs,1),2)), [3,1,2]), [], 2);
+plot(C(1:5:end,1), C(1:5:end,2), '-', 'Color', [0.7 0.7 0.7]);
+```
+</Tip>
