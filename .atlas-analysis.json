@@ -1,0 +1,56 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Lcurve",
+  "projectDescription": "A MATLAB tool for computing the L-curve criterion in Tikhonov regularization, including analytic curvature evaluation and automatic optimal regularization parameter selection.",
+  "theme": "palm",
+  "primaryColor": "#2563EB",
+  "lightColor": "#3B82F6",
+  "darkColor": "#1D4ED8",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Concepts",
+            "pages": ["concepts/tikhonov-regularization", "concepts/lcurve-criterion", "concepts/curvature"]
+          },
+          {
+            "group": "Guides",
+            "pages": ["guides/basic-usage", "guides/knee-detection", "guides/visualization", "guides/warm-up"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Function Reference",
+            "pages": ["api/lcurve-function", "api/parameters", "api/outputs", "api/methods"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Analytic curvature computation of the log-L-curve (no finite differences)",
+    "Automatic optimal regularization parameter (lambda) detection via knee-finding",
+    "Multiple linear solver backends: SVD, backslash, inv, decomposition",
+    "Support for arbitrary regularization operators L (not just identity)",
+    "Matrix warm-up via SVD pre-computation for repeated evaluations",
+    "Returns L-curve coordinates, curvatures, and osculating circle centers"
+  ],
+  "publicApiSurface": [
+    "Lcurve(A) — warm-up: precomputes SVD of A for repeated use",
+    "Lcurve(A, b, L, LAMBDAs) — evaluates L-curve at given lambda values, returns XYKCs",
+    "Lcurve(A, b, L, LAMBDAs, METHOD) — same with explicit solver method",
+    "Lcurve(A, b, L) — finds optimal lambda (knee) automatically",
+    "Lcurve(A, b, L, []) — same as above with explicit empty lambda",
+    "[X_atKnee, K_atKnee] = Lcurve(A, b, L) — returns solution and curvature at knee",
+    "[Xs, Ks] = Lcurve(A, b, L, LAMBDAs) — returns solutions and curvatures for all lambdas"
+  ]
+}
